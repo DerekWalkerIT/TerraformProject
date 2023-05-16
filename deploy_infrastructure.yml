@@ -1,0 +1,163 @@
+name: Deploy Core Infrastructure Resources
+
+on: [ push ]
+# on:
+#   pull_request:
+#     types:
+#       - closed
+
+permissions:
+  id-token: write
+  contents: read
+  pull-requests: write
+
+jobs:
+  Hub:
+    # if: github.event.pull_request.merged == true
+    runs-on: ubuntu-latest
+    container: alpine/terragrunt:1.3.6
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v2
+        with:
+          role-to-assume: arn:aws:iam::946167209662:role/github-oidc-deploy
+          aws-region: us-east-1
+
+      # - name: TG force unlock test
+      #   run: |
+      #     terragrunt force-unlock -force 0886e271-79a3-83cf-fbb2-1cac0ae26353
+      #   working-directory: ./hub/hub/security_groups/allow_ping/
+
+      - name: Create Hub Resources
+        run: |
+          terragrunt run-all apply --terragrunt-non-interactive -auto-approve -input=false
+          terraform init
+          terraform apply -auto-approve -input=false
+        working-directory: ./hub
+
+  Dev:
+    needs: Hub
+    runs-on: ubuntu-latest
+    container: alpine/terragrunt:1.3.6
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v2
+        with:
+          role-to-assume: arn:aws:iam::528259682230:role/github-oidc-deploy
+          aws-region: us-east-1
+
+      # Future reference for resolving "locked state file" error
+      # - name: Terragrunt Unlock
+      #   run: terragrunt force-unlock -force 0886e271-79a3-83cf-fbb2-1cac0ae26353
+      #   working-directory: ./dev/vpc
+
+      - name: Terragrunt Dev Environment
+        run: terragrunt run-all apply --terragrunt-non-interactive -auto-approve -input=false
+        working-directory: ./dev
+
+      - name: Terraform Dev VPC Attachments
+        run: |
+          terraform init
+          terraform apply -auto-approve -input=false 
+        working-directory: ./dev/vpc_attachments
+
+      # Future reference for resolving "locked state file" error
+      # - name: Terraform Unlock
+      #   run: |
+      #     terraform init
+      #     terraform force-unlock -force a55d8725-d615-24c1-2030-aeaa0f7281ce
+      #   working-directory: ./dev/transit_gateway
+
+      - name: Terraform Dev Transit Gateway
+        run: |
+          terraform init
+          terraform apply -auto-approve -input=false 
+        working-directory: ./dev/transit_gateway
+
+      - name: Terraform Dev Transit Gateway Route Attachments
+        run: |
+          terraform init
+          terraform apply -auto-approve -input=false 
+        working-directory: ./dev/transit_gateway_route_attachments
+
+  UAT:
+    needs: Dev
+    runs-on: ubuntu-latest
+    container: alpine/terragrunt:1.3.6
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v2
+        with:
+          role-to-assume: arn:aws:iam::246580622155:role/github-oidc-deploy
+          aws-region: us-east-1
+
+      - name: Terragrunt UAT Environment
+        run: terragrunt run-all apply --terragrunt-non-interactive -auto-approve -input=false
+        working-directory: ./uat
+
+      - name: Terraform UAT VPC Attachments
+        run: |
+          terraform init
+          terraform apply -auto-approve -input=false 
+        working-directory: ./uat/vpc_attachments
+        
+      - name: Terraform UAT Transit Gateway
+        run: |
+          terraform init
+          terraform apply -auto-approve -input=false 
+        working-directory: ./uat/transit_gateway
+
+      - name: Terraform UAT Transit Gateway Route Attachments
+        run: |
+          terraform init
+          terraform apply -auto-approve -input=false 
+        working-directory: ./uat/transit_gateway_route_attachments
+
+  Prod:
+    needs: UAT
+    runs-on: ubuntu-latest
+    container: alpine/terragrunt:1.3.6
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v1
+        with:
+          role-to-assume: arn:aws:iam::209591795217:role/github-oidc-deploy
+          aws-region: us-east-1
+
+      - name: Terragrunt Prod Environment
+        run: terragrunt run-all apply --terragrunt-non-interactive -auto-approve -input=false
+        working-directory: ./prod
+
+      - name: Terraform Prod VPC Attachments
+        run: |
+          terraform init
+          terraform apply -auto-approve -input=false 
+        working-directory: ./prod/vpc_attachments
+
+      - name: Terraform Prod Transit Gateway
+        run: |
+          terraform init
+          terraform apply -auto-approve -input=false 
+        working-directory: ./prod/transit_gateway
+
+      - name: Terraform Prod Transit Gateway Route Attachments
+        run: |
+          terraform init
+          terraform apply -auto-approve -input=false 
+        working-directory: ./prod/transit_gateway_route_attachments
